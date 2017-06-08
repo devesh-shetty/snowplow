@@ -93,7 +93,7 @@ object RedirectAdapter extends Adapter {
           val newParams =
             if (originalParams.contains("e")) {
               // Already have an event so add the URI redirect as a context (more fiddly)
-              def newCo = Map("co" -> compact(toContexts(json))).successNel
+              def newCo = Map("co" -> compact(toContext(json))).successNel
               (originalParams.get("cx"), originalParams.get("co")) match {
                 case (None, None)                 => newCo
                 case (None, Some(co)) if co == "" => newCo

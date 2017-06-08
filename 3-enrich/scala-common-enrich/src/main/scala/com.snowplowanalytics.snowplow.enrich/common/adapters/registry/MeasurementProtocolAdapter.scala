@@ -20,6 +20,11 @@ package registry
 import scalaz._
 import Scalaz._
 
+// json4s
+import org.json4s._
+import org.json4s.JsonDSL._
+import org.json4s.jackson.JsonMethods._
+
 // Iglu
 import iglu.client.{Resolver, SchemaKey}
 
@@ -34,7 +39,8 @@ object MeasurementProtocolAdapter extends Adapter {
 
   // for failure messages
   private val vendorName = "MeasurementProtocol"
-  private val vendor = "com.google.analytics.measurement-protocol"
+  private val gaVendor = "com.google.analytics"
+  private val vendor = s"$gaVendor.measurement-protocol"
   private val protocolVersion = "v1"
   private val protocol = s"$vendor-$protocolVersion"
   private val format = "jsonschema"
@@ -42,7 +48,7 @@ object MeasurementProtocolAdapter extends Adapter {
 
   case class MPData(schemaUri: String, translationTable: Map[String, String])
 
-  val hitTypeData = Map(
+  private val unstructEventData = Map(
     "pageview" -> MPData(
       SchemaKey(vendor, "page_view", format, schemaVersion).toSchemaUri,
       Map(
@@ -121,6 +127,81 @@ object MeasurementProtocolAdapter extends Adapter {
     )
   )
 
+  private val contextData = List(
+    MPData(SchemaKey(gaVendor, "undocumented", format, schemaVersion).toSchemaUri,
+      List("a", "jid", "gjid").map(e => e -> e).toMap),
+    MPData(SchemaKey(gaVendor, "private", format, schemaVersion).toSchemaUri,
+      List("_v", "_s", "_u", "_gid", "_r").map(e => e -> e.tail).toMap),
+    MPData(SchemaKey(vendor, "general", format, schemaVersion).toSchemaUri,
+      Map(
+        "v"   -> "protocolVersion",
+        "tid" -> "trackingId",
+        "aip" -> "anonymizeIp",
+        "ds"  -> "dataSource",
+        "qt"  -> "queueTime",
+        "z"   -> "cacheBuster"
+      )
+    ),
+    MPData(SchemaKey(vendor, "user", format, schemaVersion).toSchemaUri,
+      Map("cid" -> "clientId", "uid" -> "userId")),
+    MPData(SchemaKey(vendor, "session", format, schemaVersion).toSchemaUri,
+      Map(
+        "sc"    -> "sessionControl",
+        "uip"   -> "ipOverride",
+        "ua"    -> "userAgentOverride",
+        "geoid" -> "geographicalOverride"
+      )
+    ),
+    MPData(SchemaKey(vendor, "traffic_source", format, schemaVersion).toSchemaUri,
+      Map(
+        "dr"    -> "documentReferrer",
+        "cn"    -> "campaignName",
+        "cs"    -> "campaignSource",
+        "cm"    -> "campaignMedium",
+        "ck"    -> "campaignKeyword",
+        "cc"    -> "campaignContent",
+        "ci"    -> "campaignId",
+        "gclid" -> "googleAdwordsId",
+        "dclid" -> "googleDisplayAdsId"
+      )
+    ),
+    MPData(SchemaKey(vendor, "system_info", format, schemaVersion).toSchemaUri,
+      Map(
+        "sr" -> "screenResolution",
+        "vp" -> "viewportSize",
+        "de" -> "documentEncoding",
+        "sd" -> "screenColors",
+        "ul" -> "userLanguage",
+        "je" -> "javaEnabled",
+        "fl" -> "flashVersion"
+      )
+    ),
+    MPData(SchemaKey(vendor, "link", format, schemaVersion).toSchemaUri, Map("linkid" -> "id")),
+    MPData(SchemaKey(vendor, "app", format, schemaVersion).toSchemaUri,
+      Map(
+        "an"   -> "name",
+        "aid"  -> "id",
+        "av"   -> "version",
+        "aiid" -> "installerId"
+      )
+    ),
+    MPData(SchemaKey(vendor, "product_action", format, schemaVersion).toSchemaUri,
+      Map(
+        "pa"  -> "productAction",
+        "pal" -> "productActionList",
+        "cos" -> "checkoutStep",
+        "col" -> "checkoutStepOption"
+      )
+    ),
+    MPData(SchemaKey(vendor, "content_experiment", format, schemaVersion).toSchemaUri,
+      Map("xid"  -> "id", "xvar" -> "variant"))
+  )
+
+  // layer of indirection linking fields to schemas
+  private val fieldToSchemaMap = contextData
+    .flatMap(mpData => mpData.translationTable.keys.map(_ -> mpData.schemaUri))
+    .toMap
+
   /**
    * Converts a CollectorPayload instance into raw events.
    * @param payload The CollectorPaylod containing one or more raw events as collected by
@@ -136,15 +217,21 @@ object MeasurementProtocolAdapter extends Adapter {
       params.get("t") match {
         case None => s"No $vendorName t parameter provided: cannot determine hit type".failNel
         case Some(hitType) =>
+          val contexts     = buildContexts(params, contextData, fieldToSchemaMap)
+          val contextJsons = contexts.map(c => buildJsonContext(c._1, c._2))
+          val contextParam =
+            if (contextJsons.isEmpty) Map.empty
+            else Map("co" -> compact(toContexts(contextJsons.toList)))
           for {
-            trTable <- hitTypeData.get(hitType).map(_.translationTable)
+            trTable <- unstructEventData.get(hitType).map(_.translationTable)
               .toSuccess(NonEmptyList(s"No matching $vendorName hit type for hit type $hitType"))
-            schema <- lookupSchema(hitType.some, vendorName, hitTypeData.mapValues(_.schemaUri))
-            unstructEvent = buildUnstructEvent(params, trTable, hitType)
+            schema  <- lookupSchema(hitType.some, vendorName, unstructEventData.mapValues(_.schemaUri))
+            unstructEvent       = buildUnstructEvent(params, trTable, hitType)
+            unstructEventParams =
+              toUnstructEventParams(protocol, unstructEvent, schema, buildFormatter(), "srv")
           } yield NonEmptyList(RawEvent(
             api         = payload.api,
-            parameters  = toUnstructEventParams(
-                            protocol, unstructEvent, schema, buildFormatter(), "srv"),
+            parameters  = unstructEventParams ++ contextParam,
             contentType = payload.contentType,
             source      = payload.source,
             context     = payload.context
@@ -195,4 +282,7 @@ object MeasurementProtocolAdapter extends Adapter {
         .getOrElse(m)
     }
   }
+
+  private def buildJsonContext(schema: String, fields: Map[String, String]): JValue =
+    ("schema" -> schema) ~ ("data" -> fields)
 }

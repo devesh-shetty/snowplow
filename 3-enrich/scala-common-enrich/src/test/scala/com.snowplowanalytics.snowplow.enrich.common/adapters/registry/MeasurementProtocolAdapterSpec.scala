@@ -38,6 +38,7 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
     toRawEvents must return a failNel if there are no corresponding hit types    $e3
     toRawEvents must return a succNel if the payload is correct and complete     $e4
     toRawEvents must return a succNel if the payload is correct and partial      $e5
+    toRawEvents must return a succNel containing the added contexts              $e6
   """
 
   implicit val resolver = SpecHelpers.IgluResolver
@@ -123,6 +124,42 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
            |}
          |}""".stripMargin.replaceAll("[\n\r]", "")
     val expectedParams = static ++ Map("ue_pr" -> expectedJson)
+    actual must beSuccessful(NonEmptyList(RawEvent(api, expectedParams, None, source, context)))
+  }
+
+  def e6 = {
+    val params = SpecHelpers.toNameValuePairs(
+      "t"   -> "pageview",
+      "dl"  -> "document location",
+      "cid" -> "client id",
+      "v"   -> "protocol version"
+    )
+    val payload = CollectorPayload(api, params, None, None, source, context)
+    val actual = MeasurementProtocolAdapter.toRawEvents(payload)
+
+    val expectedUE =
+      """|{
+           |"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0",
+           |"data":{
+             |"schema":"iglu:com.google.analytics.measurement-protocol/page_view/jsonschema/1-0-0",
+             |"data":{
+               |"hitType":"pageview",
+               |"documentLocationURL":"document location"
+             |}
+           |}
+         |}""".stripMargin.replaceAll("[\n\r]", "")
+    val expectedCO =
+      """|{
+           |"schema":"iglu:com.snowplowanalytics.snowplow/contexts/jsonschema/1-0-1",
+           |"data":[{
+             |"schema":"iglu:com.google.analytics.measurement-protocol/user/jsonschema/1-0-0",
+             |"data":{"clientId":"client id"}
+           |},{
+             |"schema":"iglu:com.google.analytics.measurement-protocol/general/jsonschema/1-0-0",
+             |"data":{"protocolVersion":"protocol version"}
+           |}]
+         |}""".stripMargin.replaceAll("[\n\r]", "")
+    val expectedParams = static ++ Map("ue_pr" -> expectedUE, "co" -> expectedCO)
     actual must beSuccessful(NonEmptyList(RawEvent(api, expectedParams, None, source, context)))
   }
 }
