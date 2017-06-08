@@ -202,6 +202,30 @@ object MeasurementProtocolAdapter extends Adapter {
     .flatMap(mpData => mpData.translationTable.keys.map(_ -> mpData.schemaUri))
     .toMap
 
+  private val directMappings = (hitType: String) => Map(
+    "uip" -> "ip",
+    "dr"  -> "refr",
+    "de"  -> "cs",
+    "sd"  -> "cd",
+    "ul"  -> "lang",
+    "je"  -> "f_java",
+    "dl"  -> "url",
+    "dt"  -> "page",
+    "ti"  -> (if (hitType == "transaction") "tr_id" else "ti_id"),
+    "ta"  -> "tr_af",
+    "tr"  -> "tr_tt",
+    "ts"  -> "tr_sh",
+    "tt"  -> "tr_tx",
+    "in"  -> "ti_nm",
+    "ip"  -> "ti_pr",
+    "iq"  -> "ti_qu",
+    "ic"  -> "ti_sk",
+    "iv"  -> "ti_ca",
+    "cu"  -> (if (hitType == "transaction") "tr_cu" else "ti_cu")
+  )
+
+  private val letThroughFields = List("ua")
+
   /**
    * Converts a CollectorPayload instance into raw events.
    * @param payload The CollectorPaylod containing one or more raw events as collected by
@@ -222,6 +246,7 @@ object MeasurementProtocolAdapter extends Adapter {
           val contextParam =
             if (contextJsons.isEmpty) Map.empty
             else Map("co" -> compact(toContexts(contextJsons.toList)))
+          val mappings = translatePayload(params, directMappings(hitType))
           for {
             trTable <- unstructEventData.get(hitType).map(_.translationTable)
               .toSuccess(NonEmptyList(s"No matching $vendorName hit type for hit type $hitType"))
@@ -231,7 +256,7 @@ object MeasurementProtocolAdapter extends Adapter {
               toUnstructEventParams(protocol, unstructEvent, schema, buildFormatter(), "srv")
           } yield NonEmptyList(RawEvent(
             api         = payload.api,
-            parameters  = unstructEventParams ++ contextParam,
+            parameters  = unstructEventParams ++ contextParam ++ mappings,
             contentType = payload.contentType,
             source      = payload.source,
             context     = payload.context
@@ -253,7 +278,19 @@ object MeasurementProtocolAdapter extends Adapter {
     translationTable: Map[String, String],
     hitType: String
   ): Map[String, String] =
-    originalParams.foldLeft(Map("hitType" -> hitType)) { case (m, (fieldName, value)) =>
+    translatePayload(originalParams, translationTable) + ("hitType" -> hitType)
+
+  /**
+   * Translates a payload according to a translation table.
+   * @param originalParams original payload in key-value format
+   * @param translationTable mapping between original params and the wanted format
+   * @return a translated params
+   */
+  private def translatePayload(
+    originalParams: Map[String, String],
+    translationTable: Map[String, String]
+  ): Map[String, String] =
+    originalParams.foldLeft(Map.empty[String, String]) { case (m, (fieldName, value)) =>
       translationTable.get(fieldName).map(newName => m + (newName -> value)).getOrElse(m)
     }
 

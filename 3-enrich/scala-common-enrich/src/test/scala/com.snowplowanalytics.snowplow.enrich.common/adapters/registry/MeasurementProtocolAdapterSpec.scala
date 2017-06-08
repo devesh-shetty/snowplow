@@ -36,9 +36,9 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
     toRawEvents must return a failNel if the query string is empty               $e1
     toRawEvents must return a failNel if there is no t param in the query string $e2
     toRawEvents must return a failNel if there are no corresponding hit types    $e3
-    toRawEvents must return a succNel if the payload is correct and complete     $e4
-    toRawEvents must return a succNel if the payload is correct and partial      $e5
-    toRawEvents must return a succNel containing the added contexts              $e6
+    toRawEvents must return a succNel if the payload is correct                  $e4
+    toRawEvents must return a succNel containing the added contexts              $e5
+    toRawEvents must return a succNel containing the direct mappings             $e6
   """
 
   implicit val resolver = SpecHelpers.IgluResolver
@@ -81,10 +81,8 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
   def e4 = {
     val params = SpecHelpers.toNameValuePairs(
       "t"  -> "pageview",
-      "dl" -> "document location",
       "dh" -> "host name",
-      "dp" -> "path",
-      "dt" -> "title"
+      "dp" -> "path"
     )
     val payload = CollectorPayload(api, params, None, None, source, context)
     val actual = MeasurementProtocolAdapter.toRawEvents(payload)
@@ -95,11 +93,9 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
            |"data":{
              |"schema":"iglu:com.google.analytics.measurement-protocol/page_view/jsonschema/1-0-0",
              |"data":{
-               |"documentLocationURL":"document location",
-               |"documentTitle":"title",
+               |"documentHostName":"host name",
                |"documentPath":"path",
-               |"hitType":"pageview",
-               |"documentHostName":"host name"
+               |"hitType":"pageview"
              |}
            |}
          |}""".stripMargin.replaceAll("[\n\r]", "")
@@ -108,29 +104,9 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
   }
 
   def e5 = {
-    val params = SpecHelpers.toNameValuePairs("t" -> "pageview", "dl" -> "document location")
-    val payload = CollectorPayload(api, params, None, None, source, context)
-    val actual = MeasurementProtocolAdapter.toRawEvents(payload)
-
-    val expectedJson =
-      """|{
-           |"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0",
-           |"data":{
-             |"schema":"iglu:com.google.analytics.measurement-protocol/page_view/jsonschema/1-0-0",
-             |"data":{
-               |"hitType":"pageview",
-               |"documentLocationURL":"document location"
-             |}
-           |}
-         |}""".stripMargin.replaceAll("[\n\r]", "")
-    val expectedParams = static ++ Map("ue_pr" -> expectedJson)
-    actual must beSuccessful(NonEmptyList(RawEvent(api, expectedParams, None, source, context)))
-  }
-
-  def e6 = {
     val params = SpecHelpers.toNameValuePairs(
       "t"   -> "pageview",
-      "dl"  -> "document location",
+      "dh"  -> "host name",
       "cid" -> "client id",
       "v"   -> "protocol version"
     )
@@ -143,8 +119,8 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
            |"data":{
              |"schema":"iglu:com.google.analytics.measurement-protocol/page_view/jsonschema/1-0-0",
              |"data":{
-               |"hitType":"pageview",
-               |"documentLocationURL":"document location"
+               |"documentHostName":"host name",
+               |"hitType":"pageview"
              |}
            |}
          |}""".stripMargin.replaceAll("[\n\r]", "")
@@ -160,6 +136,34 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
            |}]
          |}""".stripMargin.replaceAll("[\n\r]", "")
     val expectedParams = static ++ Map("ue_pr" -> expectedUE, "co" -> expectedCO)
+    actual must beSuccessful(NonEmptyList(RawEvent(api, expectedParams, None, source, context)))
+  }
+
+  def e6 = {
+    val params = SpecHelpers.toNameValuePairs("t" -> "pageview", "uip" -> "some ip")
+    val payload = CollectorPayload(api, params, None, None, source, context)
+    val actual = MeasurementProtocolAdapter.toRawEvents(payload)
+
+    val expectedUE =
+      """|{
+           |"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0",
+           |"data":{
+             |"schema":"iglu:com.google.analytics.measurement-protocol/page_view/jsonschema/1-0-0",
+             |"data":{
+               |"hitType":"pageview"
+             |}
+           |}
+         |}""".stripMargin.replaceAll("[\n\r]", "")
+    // uip is part of the session context
+    val expectedCO =
+      """|{
+           |"schema":"iglu:com.snowplowanalytics.snowplow/contexts/jsonschema/1-0-1",
+           |"data":[{
+             |"schema":"iglu:com.google.analytics.measurement-protocol/session/jsonschema/1-0-0",
+             |"data":{"ipOverride":"some ip"}
+           |}]
+         |}""".stripMargin.replaceAll("[\n\r]", "")
+    val expectedParams = static ++ Map("ue_pr" -> expectedUE, "co" -> expectedCO, "ip" -> "some ip")
     actual must beSuccessful(NonEmptyList(RawEvent(api, expectedParams, None, source, context)))
   }
 }
