@@ -49,9 +49,9 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
     "37.157.33.123".some, None, None, Nil, None)
 
   val static = Map(
-    "tv" -> "com.google.analytics.measurement-protocol-v1",
-    "e"  -> "ue",
-    "p" -> "srv"
+    //"tv" -> "com.google.analytics.measurement-protocol-v1",
+    "e"  -> "ue"
+    //"p" -> "srv"
   )
 
   def e1 = {
@@ -94,8 +94,7 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
              |"schema":"iglu:com.google.analytics.measurement-protocol/page_view/jsonschema/1-0-0",
              |"data":{
                |"documentHostName":"host name",
-               |"documentPath":"path",
-               |"hitType":"pageview"
+               |"documentPath":"path"
              |}
            |}
          |}""".stripMargin.replaceAll("[\n\r]", "")
@@ -119,8 +118,7 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
            |"data":{
              |"schema":"iglu:com.google.analytics.measurement-protocol/page_view/jsonschema/1-0-0",
              |"data":{
-               |"documentHostName":"host name",
-               |"hitType":"pageview"
+               |"documentHostName":"host name"
              |}
            |}
          |}""".stripMargin.replaceAll("[\n\r]", "")
@@ -140,7 +138,7 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
   }
 
   def e6 = {
-    val params = SpecHelpers.toNameValuePairs("t" -> "pageview", "uip" -> "some ip")
+    val params = SpecHelpers.toNameValuePairs("t" -> "pageview", "dp" -> "path", "uip" -> "some ip")
     val payload = CollectorPayload(api, params, None, None, source, context)
     val actual = MeasurementProtocolAdapter.toRawEvents(payload)
 
@@ -149,9 +147,7 @@ class MeasurementProtocolAdapterSpec extends Specification with DataTables with 
            |"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0",
            |"data":{
              |"schema":"iglu:com.google.analytics.measurement-protocol/page_view/jsonschema/1-0-0",
-             |"data":{
-               |"hitType":"pageview"
-             |}
+             |"data":{"documentPath":"path"}
            |}
          |}""".stripMargin.replaceAll("[\n\r]", "")
     // uip is part of the session context
